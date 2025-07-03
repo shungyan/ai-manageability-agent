@@ -108,7 +108,6 @@ if __name__ == "__main__":
                 result = {name: content}
                 print("Ollama result:", json.dumps(result))
                 
-                # 🔥 Send to Kafka
                 producer.send("people-count", value=result)
                 producer.flush()
             except Exception as e:
