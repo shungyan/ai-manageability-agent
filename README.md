@@ -1,5 +1,7 @@
 prequisite:
-https://github.com/huichuno/edge-optimized-ai-assistant
+uv
+ollama
+docker
 
 1. docker compose up -d
 2. create kafka topics
