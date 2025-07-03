@@ -12,7 +12,7 @@ docker
 
 
 - How to create topics in kafka
--
+
   ```
   docker exec -it broker kafka-topics \
     --create \
@@ -22,10 +22,8 @@ docker
     --replication-factor 1
   
   ```
--
--
+
 - How to list topics in kafka
--
   ```
   docker exec -it broker kafka-topics \
     --list \
