@@ -1,0 +1,56 @@
+version: '3'
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: zookeeper
+    restart: unless-stopped
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+    ports:
+      - "2181:2181"
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: broker
+    restart: unless-stopped
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+
+  rtsp-server:
+    image: bluenviron/mediamtx
+    container_name: rtsp-server
+    restart: unless-stopped
+    network_mode: host
+    # By using host networking, the RTSP server will be accessible on localhost:8554
+
+  ffmpeg-camera:
+    image: jrottenberg/ffmpeg:7.0-alpine  # Use official FFmpeg Docker image
+    container_name: ffmpeg-camera
+    restart: unless-stopped
+    network_mode: host  # Ensures ffmpeg can push to rtsp://localhost
+    devices:
+      - /dev/video0:/dev/video0  # Pass through your webcam device
+    command: >
+      -f v4l2 -i /dev/video0
+      -c:v libx264
+      -f rtsp rtsp://localhost:8554/cam0
+    # Explanation:
+    # -f v4l2        : Use V4L2 input driver for the webcam
+    # -i /dev/video0 : Input device
+    # -c:v libx264   : Encode video with H.264
+    # -f rtsp        : Output format RTSP
+    # rtsp://localhost:8554/cam0 : Push stream to RTSP server
+
+volumes:
+  kafka-data:
+
