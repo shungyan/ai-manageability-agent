@@ -6,13 +6,22 @@ import json
 import os
 import base64
 import litellm
-from kafka import KafkaProducer
+from quixstreams import Application
+import time
 
-# Kafka setup
-producer = KafkaProducer(
-    bootstrap_servers='localhost:9092',
-    value_serializer=lambda v: json.dumps(v).encode('utf-8')
-)
+def produce_queue_count(
+    broker_address: str, topic_name: str, consumer_group: str, count: int
+):
+    """
+    Produces a single queue count event to the specified Kafka topic.
+    """
+    app = Application(broker_address=broker_address, consumer_group=consumer_group)
+    topic = app.topic(name=topic_name, value_serializer="json")
+
+    with app.get_producer() as producer:
+        message = topic.serialize(key="queue", value={"queue_count": count})
+        producer.produce(topic=topic.name, value=message.value, key=message.key)
+        print(f"Produced queue count: {count}")
 
 # Single RTSP stream
 streams = {
@@ -66,16 +75,23 @@ def send_single_image_to_ollama(cam_name, image_path):
     image_url = encode_image_to_data_url(image_path)
 
     prompt = (
-        """Your task is to determine:
-        How many people are currently using the kiosk* (i.e., directly interacting with it).
-        How many people are queuing* (i.e., waiting in line but not yet using the kiosk).
-        Return ONLY a JSON object in the following format:
-        {"using": <number of people using>, "queue": <number of people queuing>}"""
+        """You are an expert computer vision assistant.
+
+    Your ONLY task is:
+    - Determine the number of people currently using the kiosk (directly interacting).
+    - Determine the number of people queuing (waiting in line, not yet using).
+
+    STRICTLY return ONLY a single line JSON object in the following format:
+    {"using": <number>, "queue": <number>}
+
+    DO NOT include any explanation, text, or commentary outside the JSON.
+    """
     )
 
 
+
     response = litellm.completion(
-        model="ollama/minicpm-v",
+        model="ollama/gemma3",
         messages=[
             {
                 "role": "user",
@@ -108,8 +124,7 @@ if __name__ == "__main__":
                 result = {name: content}
                 print("Ollama result:", json.dumps(result))
                 
-                producer.send("people-count", value=result)
-                producer.flush()
+                produce_queue_count("localhost:9092", "people-count", "retail", result)
             except Exception as e:
                 print("Error during analysis:", e)
 
