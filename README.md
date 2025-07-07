@@ -1,12 +1,15 @@
 prequisite:
+
 uv
+
 ollama
+
 docker
 
 1. docker compose up -d
 2. create kafka topics
 3. uv venv
-4. uv pip install -r requirement
+4. uv pip install -r requirements.txt
 5. uv run main.py
 6. uv run adk web --port 1234
 
