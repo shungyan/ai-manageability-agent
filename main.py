@@ -3,12 +3,12 @@ import pandas as pd
 from ultralytics import YOLO
 from tracker import Tracker
 import cvzone
-import numpy as np
-from quixstreams import Application
-import time
 import subprocess
 import numpy as np
 import json
+import threading
+from quixstreams import Application
+import time
 
 def produce_queue_count(
     broker_address: str, topic_name: str, consumer_group: str, count: int
@@ -23,6 +23,11 @@ def produce_queue_count(
         message = topic.serialize(key="queue", value={"queue_count": count})
         producer.produce(topic=topic.name, value=message.value, key=message.key)
         print(f"Produced queue count: {count}")
+
+# Single RTSP stream
+streams = {
+    "cam0": "rtsp://localhost:8554/cam0"
+}
 
 # Initialize YOLO model
 model = YOLO('yolov8s.pt')
@@ -60,7 +65,6 @@ def process_frame(frame, model, class_list, tracker, area):
 
     return frame, detected_in_area
 
-
 def get_video_resolution(rtsp_url):
     ffprobe_cmd = [
         'ffprobe',
@@ -92,60 +96,58 @@ def get_video_resolution(rtsp_url):
     height = streams[0].get('height')
     return width, height
 
+class RTSPStream:
+    def __init__(self, rtsp_url):
+        self.rtsp_url = rtsp_url
+        self.cap = cv2.VideoCapture(self.rtsp_url, cv2.CAP_FFMPEG)
+        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        self.frame = None
+        self.lock = threading.Lock()
+        self.running = True
+        threading.Thread(target=self.update, daemon=True).start()
+
+    def update(self):
+        while self.running:
+            ret, frame = self.cap.read()
+            if ret:
+                with self.lock:
+                    self.frame = frame
+
+    def get_frame(self):
+        with self.lock:
+            return self.frame.copy() if self.frame is not None else None
+
+    def stop(self):
+        self.running = False
+        self.cap.release()
+
 def main():
     cv2.namedWindow('people_counter')
     cv2.setMouseCallback('people_counter', people_counter)
 
-    rtsp_url = 'rtsp://localhost:8554/cam0'
+    rtsp_url = 'rtsp://localhost:8554/cam0?buffer_size=512000,rtsp_transport=udp'
 
-    # Get frame size from ffprobe
-    frame_width, frame_height = get_video_resolution(rtsp_url)
-    if frame_width is None or frame_height is None:
-        print("Could not determine video resolution. Exiting.")
-        return
-
-    print(f"Detected video resolution: {frame_width}x{frame_height}")
-
-    # Start FFmpeg process to read RTSP and output raw frames in BGR24 pixel format
-    ffmpeg_cmd = [
-        'ffmpeg',
-        '-rtsp_transport', 'tcp',      # Use TCP for better stability on RTSP
-        '-i', rtsp_url,
-        '-f', 'rawvideo',              # Output raw video
-        '-pix_fmt', 'bgr24',           # OpenCV uses BGR
-        '-vsync', '0',                 # Prevent frame duplication
-        '-an',                         # Disable audio
-        '-'
-    ]
-
-    process = subprocess.Popen(
-        ffmpeg_cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,  # Suppress FFmpeg logs; set to None if you want to see them
-        bufsize=10**8
-    )
-
-    frame_size = frame_width * frame_height * 3  # 3 bytes per pixel for BGR
+    # Initialize threaded RTSP stream
+    stream = RTSPStream(rtsp_url)
 
     class_list = load_class_list("coco.txt")
     tracker = Tracker()
 
+    y_offset = 100
     area = [
-        (240, 140),  # top-left shifted down by 100
-        (830, 140),  # top-right shifted down by 100
-        (830, 665),  # bottom-right shifted down by 100
-        (240, 665)   # bottom-left shifted down by 100
+        (240, 40 + y_offset),
+        (830, 40 + y_offset),
+        (830, 565 + y_offset),
+        (240, 565 + y_offset)
     ]
 
-    delay = 30  # approximate delay; FFmpeg doesn't expose fps directly
+    delay = 30  # approximate delay
 
     while True:
-        raw_frame = process.stdout.read(frame_size)
-        if len(raw_frame) != frame_size:
-            print("Stream ended or error encountered.")
-            break
+        frame = stream.get_frame()
+        if frame is None:
+            continue  # wait until frames are available
 
-        frame = np.frombuffer(raw_frame, np.uint8).reshape((frame_height, frame_width, 3))
 
         frame, detected_count = process_frame(frame, model, class_list, tracker, area)
         print(detected_count)
@@ -158,9 +160,8 @@ def main():
         if cv2.waitKey(delay) & 0xFF == 27:
             break
 
-    process.terminate()
+    stream.stop()
     cv2.destroyAllWindows()
-
 
 
 if __name__ == "__main__":
