@@ -1,13 +1,14 @@
-import subprocess
-import numpy as np
 import cv2
-import time
-import json
-import os
-import base64
-import litellm
+import pandas as pd
+from ultralytics import YOLO
+from tracker import Tracker
+import cvzone
+import numpy as np
 from quixstreams import Application
 import time
+import subprocess
+import numpy as np
+import json
 
 def produce_queue_count(
     broker_address: str, topic_name: str, consumer_group: str, count: int
@@ -23,113 +24,144 @@ def produce_queue_count(
         producer.produce(topic=topic.name, value=message.value, key=message.key)
         print(f"Produced queue count: {count}")
 
-# Single RTSP stream
-streams = {
-    "cam0": "rtsp://localhost:8554/cam0"
-}
+# Initialize YOLO model
+model = YOLO('yolov8s.pt')
 
-save_interval = 1  # seconds
+def people_counter(event, x, y, flags, param):
+    if event == cv2.EVENT_MOUSEMOVE:
+        print([x, y])
 
-def get_stream_resolution(rtsp_url):
+def load_class_list(file_path):
+    with open(file_path, "r") as file:
+        return file.read().split("\n")
+
+def process_frame(frame, model, class_list, tracker, area):
+    frame = cv2.resize(frame, (1020, 500))
+    results = model.predict(frame)
+    boxes_data = results[0].boxes.data
+    px = pd.DataFrame(boxes_data).astype("float")
+
+    detected_objects = []
+    for _, row in px.iterrows():
+        x1, y1, x2, y2, _, d = map(int, row)
+        if 'person' in class_list[d]:
+            detected_objects.append([x1, y1, x2, y2])
+
+    objects_bbs_ids = tracker.update(detected_objects)
+    detected_in_area = 0
+
+    for bbox in objects_bbs_ids:
+        x3, y3, x4, y4, obj_id = bbox
+        if cv2.pointPolygonTest(np.array(area, np.int32), (x4, y4), False) >= 0:
+            cv2.circle(frame, (x4, y4), 4, (0, 255, 0), -1)
+            cv2.rectangle(frame, (x3, y3), (x4, y4), (255, 255, 255), 2)
+            cvzone.putTextRect(frame, f'{obj_id}', (x3, y3), 1, 1)
+            detected_in_area += 1
+
+    return frame, detected_in_area
+
+
+def get_video_resolution(rtsp_url):
     ffprobe_cmd = [
-        "ffprobe", "-v", "error",
-        "-select_streams", "v:0",
-        "-show_entries", "stream=width,height",
-        "-of", "json", rtsp_url
+        'ffprobe',
+        '-v', 'error',
+        '-select_streams', 'v:0',              # first video stream
+        '-show_entries', 'stream=width,height',
+        '-of', 'json',
+        rtsp_url
     ]
-    ffprobe_output = subprocess.run(ffprobe_cmd, capture_output=True, text=True)
-    info = json.loads(ffprobe_output.stdout)
-    stream_info = info['streams'][0]
-    return int(stream_info['width']), int(stream_info['height'])
 
-def capture_frame(name, url, width, height):
-    frame_size = width * height * 3
+    result = subprocess.run(
+        ffprobe_cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        universal_newlines=True
+    )
+
+    if result.returncode != 0:
+        print(f"ffprobe error: {result.stderr.strip()}")
+        return None, None
+
+    info = json.loads(result.stdout)
+    streams = info.get('streams', [])
+    if not streams:
+        print("No video stream found.")
+        return None, None
+
+    width = streams[0].get('width')
+    height = streams[0].get('height')
+    return width, height
+
+def main():
+    cv2.namedWindow('people_counter')
+    cv2.setMouseCallback('people_counter', people_counter)
+
+    rtsp_url = 'rtsp://localhost:8554/cam0'
+
+    # Get frame size from ffprobe
+    frame_width, frame_height = get_video_resolution(rtsp_url)
+    if frame_width is None or frame_height is None:
+        print("Could not determine video resolution. Exiting.")
+        return
+
+    print(f"Detected video resolution: {frame_width}x{frame_height}")
+
+    # Start FFmpeg process to read RTSP and output raw frames in BGR24 pixel format
     ffmpeg_cmd = [
-        "ffmpeg", "-rtsp_transport", "tcp",
-        "-i", url,
-        "-frames:v", "1",
-        "-f", "image2pipe",
-        "-pix_fmt", "bgr24",
-        "-vcodec", "rawvideo", "-"
+        'ffmpeg',
+        '-rtsp_transport', 'tcp',      # Use TCP for better stability on RTSP
+        '-i', rtsp_url,
+        '-f', 'rawvideo',              # Output raw video
+        '-pix_fmt', 'bgr24',           # OpenCV uses BGR
+        '-vsync', '0',                 # Prevent frame duplication
+        '-an',                         # Disable audio
+        '-'
     ]
-    process = subprocess.Popen(ffmpeg_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    raw_frame = process.stdout.read(frame_size)
-    process.terminate()
 
-    if len(raw_frame) < frame_size:
-        print(f"[{name}] Incomplete frame read. Got {len(raw_frame)} bytes, expected {frame_size}.")
-        return None
-
-    frame = np.frombuffer(raw_frame, np.uint8).reshape((height, width, 3))
-    filename = f"{name}_frame.jpg"
-    cv2.imwrite(filename, frame)
-    print(f"[{name}] Saved {filename}")
-    return filename
-
-def encode_image_to_data_url(path):
-    with open(path, "rb") as f:
-        b64_image = base64.b64encode(f.read()).decode('utf-8')
-    return f"data:image/jpeg;base64,{b64_image}"
-
-def send_single_image_to_ollama(cam_name, image_path):
-    image_url = encode_image_to_data_url(image_path)
-
-    prompt = (
-        """You are an expert computer vision assistant.
-
-    Your ONLY task is:
-    - Determine the number of people currently using the kiosk (directly interacting).
-    - Determine the number of people queuing (waiting in line, not yet using).
-
-    STRICTLY return ONLY a single line JSON object in the following format:
-    {"using": <number>, "queue": <number>}
-
-    DO NOT include any explanation, text, or commentary outside the JSON.
-    """
+    process = subprocess.Popen(
+        ffmpeg_cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,  # Suppress FFmpeg logs; set to None if you want to see them
+        bufsize=10**8
     )
 
+    frame_size = frame_width * frame_height * 3  # 3 bytes per pixel for BGR
 
+    class_list = load_class_list("coco.txt")
+    tracker = Tracker()
 
-    response = litellm.completion(
-        model="ollama/gemma3",
-        messages=[
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt},
-                    {"type": "image_url", "image_url": {"url": image_url}},
-                ]
-            }
-        ]
-    )
+    area = [
+        (240, 140),  # top-left shifted down by 100
+        (830, 140),  # top-right shifted down by 100
+        (830, 665),  # bottom-right shifted down by 100
+        (240, 665)   # bottom-left shifted down by 100
+    ]
 
-    content = response["choices"][0]["message"]["content"].strip()
-
-    return cam_name, content
-
-if __name__ == "__main__":
-    cam_name, rtsp_url = list(streams.items())[0]
-
-    print(f"[INFO] Processing single stream: {cam_name} ({rtsp_url})")
-    width, height = get_stream_resolution(rtsp_url)
-    print(f"[INFO] Resolution for {cam_name}: {width}x{height}")
+    delay = 30  # approximate delay; FFmpeg doesn't expose fps directly
 
     while True:
-        start_time = time.time()
+        raw_frame = process.stdout.read(frame_size)
+        if len(raw_frame) != frame_size:
+            print("Stream ended or error encountered.")
+            break
 
-        image_path = capture_frame(cam_name, rtsp_url, width, height)
-        if image_path:
-            try:
-                name, content = send_single_image_to_ollama(cam_name, image_path)
-                result = {name: content}
-                print("Ollama result:", json.dumps(result))
-                
-                produce_queue_count("localhost:9092", "people-count", "retail", result)
-            except Exception as e:
-                print("Error during analysis:", e)
+        frame = np.frombuffer(raw_frame, np.uint8).reshape((frame_height, frame_width, 3))
 
-        # Wait until next interval
-        elapsed = time.time() - start_time
-        sleep_time = save_interval - elapsed
-        if sleep_time > 0:
-            time.sleep(sleep_time)
+        frame, detected_count = process_frame(frame, model, class_list, tracker, area)
+        print(detected_count)
+        produce_queue_count("localhost:9092", "people-count", "retail", detected_count)
+
+        cv2.putText(frame, f'People in Area: {detected_count}', (20, 50), cv2.FONT_HERSHEY_COMPLEX, 1, (0, 255, 0), 2)
+        cv2.polylines(frame, [np.array(area, np.int32)], True, (0, 255, 0), 2)
+
+        cv2.imshow("people_counter", frame)
+        if cv2.waitKey(delay) & 0xFF == 27:
+            break
+
+    process.terminate()
+    cv2.destroyAllWindows()
+
+
+
+if __name__ == "__main__":
+    main()
