@@ -2,6 +2,8 @@ from quixstreams import Application
 import time
 import json
 from confluent_kafka import Consumer, TopicPartition
+from mcp.server.fastmcp import Context, FastMCP
+
 
 # Configure an Application.
 # The config params will be used for the Consumer instance too.
@@ -14,6 +16,9 @@ app = Application(
 
 latest = 0
 
+mcp = FastMCP("Kafka MCP Server")
+
+@mcp.tool()
 def get_latest_queue_count() -> int:
     global latest
     # Create a consumer and start a polling loop
@@ -55,17 +60,6 @@ def get_latest_queue_count() -> int:
         consumer.close()
         return value["queue_count"]
 
-
-def main():
-    while True:
-        count = get_latest_queue_count()
-        print(f"Consumed: {count}")
-        time.sleep(2)
-
-    # count = get_latest_queue_count()
-    # print(f"Consumed: {count}")
-
-
 if __name__ == "__main__":
-    main()
-
+    # Run the server
+    mcp.run()
