@@ -43,6 +43,7 @@ services:
       -preset ultrafast
       -tune zerolatency
       -g 25
+      -rtsp_transport tcp
       -f rtsp rtsp://localhost:8554/cam0
 
 

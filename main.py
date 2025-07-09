@@ -1,168 +1,123 @@
-import cv2
-import pandas as pd
 from ultralytics import YOLO
-from tracker import Tracker
-import cvzone
-import subprocess
-import numpy as np
-import json
-import threading
-from quixstreams import Application
+import cv2
 import time
+import collections
+import numpy as np
+import torch
+import openvino as ov
+from kafka import KafkaProducer
+import json
 
-def produce_queue_count(
-    broker_address: str, topic_name: str, consumer_group: str, count: int
-):
-    """
-    Produces a single queue count event to the specified Kafka topic.
-    """
-    app = Application(broker_address=broker_address, consumer_group=consumer_group)
-    topic = app.topic(name=topic_name, value_serializer="json")
+producer = KafkaProducer(
+    bootstrap_servers='localhost:9092',
+    value_serializer=lambda v: json.dumps(v).encode('utf-8')
+)
 
-    with app.get_producer() as producer:
-        message = topic.serialize(key="queue", value={"queue_count": count})
-        producer.produce(topic=topic.name, value=message.value, key=message.key)
-        print(f"Produced queue count: {count}")
+def run_inference(source, device, det_model_path):
+    core = ov.Core()
 
-# Single RTSP stream
-streams = {
-    "cam0": "rtsp://localhost:8554/cam0"
-}
+    # Load OpenVINO model
+    det_ov_model = core.read_model(det_model_path)
+    ov_config = {}
 
-# Initialize YOLO model
-model = YOLO('yolov8s.pt')
+    if device.value != "CPU":
+        det_ov_model.reshape({0: [1, 3, 640, 640]})
 
-def people_counter(event, x, y, flags, param):
-    if event == cv2.EVENT_MOUSEMOVE:
-        print([x, y])
+    if "GPU" in device.value or ("AUTO" in device.value and "GPU" in core.available_devices):
+        ov_config = {"GPU_DISABLE_WINOGRAD_CONVOLUTION": "YES"}
 
-def load_class_list(file_path):
-    with open(file_path, "r") as file:
-        return file.read().split("\n")
+    compiled_model = core.compile_model(det_ov_model, device.value, ov_config)
 
-def process_frame(frame, model, class_list, tracker, area):
-    frame = cv2.resize(frame, (1020, 500))
-    results = model.predict(frame)
-    boxes_data = results[0].boxes.data
-    px = pd.DataFrame(boxes_data).astype("float")
+    # Load YOLO model and patch inference with OpenVINO
+    det_model = YOLO("yolov8n.pt")
+    def infer(*args):
+        result = compiled_model(args)
+        return torch.from_numpy(result[0])
 
-    detected_objects = []
-    for _, row in px.iterrows():
-        x1, y1, x2, y2, _, d = map(int, row)
-        if 'person' in class_list[d]:
-            detected_objects.append([x1, y1, x2, y2])
+    _ = det_model.predict(np.zeros((640, 640, 3), dtype=np.uint8))  
+    det_model.predictor.inference = infer
+    det_model.predictor.model.pt = False
 
-    objects_bbs_ids = tracker.update(detected_objects)
-    detected_in_area = 0
+    try:
+        cap = cv2.VideoCapture(source)
+        assert cap.isOpened(), "Error reading video source."
 
-    for bbox in objects_bbs_ids:
-        x3, y3, x4, y4, obj_id = bbox
-        if cv2.pointPolygonTest(np.array(area, np.int32), (x4, y4), False) >= 0:
-            cv2.circle(frame, (x4, y4), 4, (0, 255, 0), -1)
-            cv2.rectangle(frame, (x3, y3), (x4, y4), (255, 255, 255), 2)
-            cvzone.putTextRect(frame, f'{obj_id}', (x3, y3), 1, 1)
-            detected_in_area += 1
-
-    return frame, detected_in_area
-
-def get_video_resolution(rtsp_url):
-    ffprobe_cmd = [
-        'ffprobe',
-        '-v', 'error',
-        '-select_streams', 'v:0',              # first video stream
-        '-show_entries', 'stream=width,height',
-        '-of', 'json',
-        rtsp_url
-    ]
-
-    result = subprocess.run(
-        ffprobe_cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        universal_newlines=True
-    )
-
-    if result.returncode != 0:
-        print(f"ffprobe error: {result.stderr.strip()}")
-        return None, None
-
-    info = json.loads(result.stdout)
-    streams = info.get('streams', [])
-    if not streams:
-        print("No video stream found.")
-        return None, None
-
-    width = streams[0].get('width')
-    height = streams[0].get('height')
-    return width, height
-
-class RTSPStream:
-    def __init__(self, rtsp_url):
-        self.rtsp_url = rtsp_url
-        self.cap = cv2.VideoCapture(self.rtsp_url, cv2.CAP_FFMPEG)
-        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-        self.frame = None
-        self.lock = threading.Lock()
-        self.running = True
-        threading.Thread(target=self.update, daemon=True).start()
-
-    def update(self):
-        while self.running:
-            ret, frame = self.cap.read()
-            if ret:
-                with self.lock:
-                    self.frame = frame
-
-    def get_frame(self):
-        with self.lock:
-            return self.frame.copy() if self.frame is not None else None
-
-    def stop(self):
-        self.running = False
-        self.cap.release()
-
-def main():
-    cv2.namedWindow('people_counter')
-    cv2.setMouseCallback('people_counter', people_counter)
-
-    rtsp_url = 'rtsp://localhost:8554/cam0?buffer_size=512000,rtsp_transport=udp'
-
-    # Initialize threaded RTSP stream
-    stream = RTSPStream(rtsp_url)
-
-    class_list = load_class_list("coco.txt")
-    tracker = Tracker()
-
-    y_offset = 100
-    area = [
-        (240, 40 + y_offset),
-        (830, 40 + y_offset),
-        (830, 565 + y_offset),
-        (240, 565 + y_offset)
-    ]
-
-    delay = 30  # approximate delay
-
-    while True:
-        frame = stream.get_frame()
-        if frame is None:
-            continue  # wait until frames are available
+        # Polygonal area
+        area = [
+            (900, 300),  
+            (1500, 300),
+            (1500, 1500),  
+            (900, 1500)
+        ]
 
 
-        frame, detected_count = process_frame(frame, model, class_list, tracker, area)
-        print(detected_count)
-        produce_queue_count("localhost:9092", "people-count", "retail", detected_count)
+        processing_times = collections.deque(maxlen=200)
 
-        cv2.putText(frame, f'People in Area: {detected_count}', (20, 50), cv2.FONT_HERSHEY_COMPLEX, 1, (0, 255, 0), 2)
-        cv2.polylines(frame, [np.array(area, np.int32)], True, (0, 255, 0), 2)
+        while cap.isOpened():
+            success, frame = cap.read()
+            if not success:
+                print("Video frame is empty or video processing has been successfully completed.")
+                break
 
-        cv2.imshow("people_counter", frame)
-        if cv2.waitKey(delay) & 0xFF == 27:
-            break
+            start_time = time.time()
 
-    stream.stop()
+            # Run YOLO inference (returns Results object)
+            results = det_model(frame)[0]
+            people_inside_area = 0
+
+            for det in results.boxes:
+                cls_id = int(det.cls)
+                if results.names[cls_id] == 'person':
+                    x1, y1, x2, y2 = map(int, det.xyxy[0])
+                    cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
+
+                    # Check if center is in polygonal area
+                    if cv2.pointPolygonTest(np.array(area, dtype=np.int32), (cx, cy), False) >= 0:
+                        people_inside_area += 1
+                        cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                    #else:
+                        #cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), 2)
+
+            print(people_inside_area)
+            producer.send("people-count", value=people_inside_area)
+            producer.flush()
+            # Draw polygonal area
+            cv2.polylines(frame, [np.array(area, dtype=np.int32)], isClosed=True, color=(255, 255, 0), thickness=2)
+
+            # Timing
+            stop_time = time.time()
+            processing_times.append(stop_time - start_time)
+            processing_time = np.mean(processing_times) * 1000
+            fps = 1000 / processing_time
+
+            # Show timing and count
+            f_height, f_width = frame.shape[:2]
+            cv2.putText(frame, f"Inference time: {processing_time:.1f}ms ({fps:.1f} FPS)",
+                        (20, 40), cv2.FONT_HERSHEY_COMPLEX, f_width / 1000, (0, 0, 255), 2, cv2.LINE_AA)
+
+            count_text = f"Count: {people_inside_area}"
+            (text_width, _), _ = cv2.getTextSize(count_text, cv2.FONT_HERSHEY_COMPLEX, 1.5, 3)
+            top_right = (frame.shape[1] - text_width - 20, 80)
+            cv2.putText(frame, count_text, top_right, cv2.FONT_HERSHEY_COMPLEX, 0.75, (0, 0, 255), 2, cv2.LINE_AA)
+
+            # Display
+            display_frame = cv2.resize(frame, None, fx=0.5, fy=0.5)
+            cv2.imshow("People Counter", display_frame)
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
+
+
+    except KeyboardInterrupt:
+        print("Interrupted.")
+
+    cap.release()
     cv2.destroyAllWindows()
 
 
-if __name__ == "__main__":
-    main()
+from types import SimpleNamespace
+
+source = "rtsp://localhost:8554/cam0"  # or 'video.mp4' or RTSP stream
+device = SimpleNamespace(value="NPU")  # or "CPU", "AUTO"
+det_model_path = "yolov8n_openvino_model/yolov8n.xml"
+
+run_inference(source, device, det_model_path)
