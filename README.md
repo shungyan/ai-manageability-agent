@@ -86,14 +86,14 @@ uv venv
 uv pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu --index-strategy unsafe-best-match
 ```
 
-5. Convert YOLO model
+5. Convert YOLO model (optional)
 ```bash
-uv run convert_yolo.py
+uv run person_queue_count/convert_yolo.py
 ```
 
 6. Run the main application
 ```bash
-uv run main.py
+uv run person_queue_count/main.py
 ```
 
 7. Launch the web dashboard on port 1234
