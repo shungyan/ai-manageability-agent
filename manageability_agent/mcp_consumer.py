@@ -59,10 +59,10 @@ def get_latest_queue_count():
 
     for tp, messages in msg_pack.items():
         for message in messages:
-            consumer.commit(offsets={
-                TopicPartition(topic, partition): OffsetAndMetadata(message.offset + 1, None,-1)
-            })
-            consumer.close()
+            # consumer.commit(offsets={
+            #     TopicPartition(topic, partition): OffsetAndMetadata(message.offset + 1, None,-1)
+            # })
+            # consumer.close()
             return message.value
 
     return -2
