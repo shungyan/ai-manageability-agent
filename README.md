@@ -70,7 +70,7 @@ print(core.available_devices)
 Follow these steps to set up and run the AI Manageability Agent:
 1.  Clone the repository
 ```bash
-git clone https://github.com/shungyan/AI-manageability-
+git clone https://github.com/shungyan/AI-manageability-agent
 cd AI-manageability
 ```
 
