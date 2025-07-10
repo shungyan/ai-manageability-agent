@@ -83,7 +83,7 @@ docker compose up -d
 4. Set up Python environment with uv
 ```bash
 uv venv
-uv pip install -r requirements.txt
+uv pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu --index-strategy unsafe-best-match
 ```
 
 5. Convert YOLO model
