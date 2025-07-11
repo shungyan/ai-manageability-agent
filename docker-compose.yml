@@ -54,5 +54,7 @@ services:
     network_mode: host
     devices:
       - /dev/accel/accel0
-
+    environment:
+          - DEVICE=NPU
+          - SOURCE=rtsp://localhost:8554/cam0 
 

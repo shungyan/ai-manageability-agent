@@ -10,27 +10,17 @@ from kafka import KafkaProducer
 import json
 from types import SimpleNamespace
 from quixstreams import Application
+import os
 
-app = Flask(__name__)
-
-def produce_queue_count(
-    broker_address: str, topic_name: str, consumer_group: str, count: int
-):
-    """
-    Produces a single queue count event to the specified Kafka topic.
-    """
-    app = Application(broker_address=broker_address, consumer_group=consumer_group)
-    topic = app.topic(name=topic_name, value_serializer="json")
-
-    with app.get_producer() as producer:
-        message = topic.serialize(key="queue", value={"queue_count": count})
-        producer.produce(topic=topic.name, value=message.value, key=message.key)
-        print(f"Produced queue count: {count}")
+DEVICE = os.environ.get("DEVICE")
+# source = "rtsp://localhost:8554/cam0" 
+source = os.environ.get("SOURCE")
 
 # Set parameters
-source = "rtsp://localhost:8554/cam0"  # or 'video.mp4'
-device = SimpleNamespace(value="NPU")  # or "CPU", "AUTO"
+device = SimpleNamespace(value=DEVICE)  
 det_model_path = "yolov8n_openvino_model/yolov8n.xml"
+
+app = Flask(__name__)
 
 # Load and prepare model once
 core = ov.Core()
@@ -56,6 +46,19 @@ _ = det_model.predict(np.zeros((640, 640, 3), dtype=np.uint8))
 det_model.predictor.inference = infer
 det_model.predictor.model.pt = False
 
+def produce_queue_count(
+    broker_address: str, topic_name: str, consumer_group: str, count: int
+):
+    """
+    Produces a single queue count event to the specified Kafka topic.
+    """
+    app = Application(broker_address=broker_address, consumer_group=consumer_group)
+    topic = app.topic(name=topic_name, value_serializer="json")
+
+    with app.get_producer() as producer:
+        message = topic.serialize(key="queue", value={"queue_count": count})
+        producer.produce(topic=topic.name, value=message.value, key=message.key)
+        print(f"Produced queue count: {count}")
 
 
 def generate_frames():
