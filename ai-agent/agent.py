@@ -4,7 +4,8 @@ from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset, StdioConnectionPar
 
 param1 = StdioServerParameters(
     command='uv',
-    args=["--directory", "/home/sysadmin/AI-manageability-agent/ai-agent/", "run", "mcp_consumer.py"]
+    args=["--directory", "/home/sysadmin/AI-manageability-agent/ai-agent/", "run", "mcp_consumer.py"],
+    timeout=150,
 )
 
 param2 = StdioServerParameters(
