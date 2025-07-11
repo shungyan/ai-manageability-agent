@@ -10,10 +10,8 @@ The system leverages edge AI with Intel NPU support to provide efficient local i
 - **Ubuntu**: 22.04 or 24.10  
 - **Intel Platform**: Meteor Lake and above  
 - **uv** (Python package and virtual environment manager):
-  
   ```bash
   curl -LsSf https://astral.sh/uv/install.sh | sh
-
 
 ### 🟦 Ollama
 
@@ -32,38 +30,6 @@ Install Docker following the official instructions for Ubuntu:
 Ensure Docker is running and you can execute containers.
 
 ---
-
-### ⚙️ Intel NPU Driver Installation (optional)
-
-Install the NPU driver for Meteor Lake and above (Ubuntu 24.04 compatible):
-
-```bash
-sudo apt install libtbb12
-
-wget https://github.com/intel/linux-npu-driver/releases/download/v1.13.0/intel-driver-compiler-npu_1.13.0.20250131-13074932693_ubuntu24.04_amd64.deb
-wget https://github.com/intel/linux-npu-driver/releases/download/v1.13.0/intel-fw-npu_1.13.0.20250131-13074932693_ubuntu24.04_amd64.deb
-wget https://github.com/intel/linux-npu-driver/releases/download/v1.13.0/intel-level-zero-npu_1.13.0.20250131-13074932693_ubuntu24.04_amd64.deb
-wget https://github.com/oneapi-src/level-zero/releases/download/v1.18.5/level-zero_1.18.5+u24.04_amd64.deb
-
-sudo dpkg -i *.deb
-sudo bash -c "echo 'SUBSYSTEM==\"accel\", KERNEL==\"accel*\", GROUP=\"render\", MODE=\"0660\"' > /etc/udev/rules.d/10-intel-vpu.rules"
-sudo usermod -a -G render <your-user-name>
-
-sudo reboot
-```
-
-### ✅ Verify NPU Driver
-
-After installing the driver and rebooting your system, verify that the NPU is available using OpenVINO:
-
-Create a Python script (e.g., `check_npu.py`) and paste the following:
-
-```python
-import openvino as ov
-
-core = ov.Core()
-print(core.available_devices)
-```
 
 ## 🚀 Getting Started
 
@@ -141,5 +107,38 @@ uv pip install intel-npu-top
 uv run intel-npu-top.py
 ```
 ![image](https://github.com/user-attachments/assets/347092f5-29bb-4494-9539-39ca06a8fc6c)
+
+---
+### ⚙️ Intel NPU Driver Installation (optional)
+
+Install the NPU driver for Meteor Lake and above (Ubuntu 24.04 compatible):
+
+```bash
+sudo apt install libtbb12
+
+wget https://github.com/intel/linux-npu-driver/releases/download/v1.13.0/intel-driver-compiler-npu_1.13.0.20250131-13074932693_ubuntu24.04_amd64.deb
+wget https://github.com/intel/linux-npu-driver/releases/download/v1.13.0/intel-fw-npu_1.13.0.20250131-13074932693_ubuntu24.04_amd64.deb
+wget https://github.com/intel/linux-npu-driver/releases/download/v1.13.0/intel-level-zero-npu_1.13.0.20250131-13074932693_ubuntu24.04_amd64.deb
+wget https://github.com/oneapi-src/level-zero/releases/download/v1.18.5/level-zero_1.18.5+u24.04_amd64.deb
+
+sudo dpkg -i *.deb
+sudo bash -c "echo 'SUBSYSTEM==\"accel\", KERNEL==\"accel*\", GROUP=\"render\", MODE=\"0660\"' > /etc/udev/rules.d/10-intel-vpu.rules"
+sudo usermod -a -G render <your-user-name>
+
+sudo reboot
+```
+
+### ✅ Verify NPU Driver
+
+After installing the driver and rebooting your system, verify that the NPU is available using OpenVINO:
+
+Create a Python script (e.g., `check_npu.py`) and paste the following:
+
+```python
+import openvino as ov
+
+core = ov.Core()
+print(core.available_devices)
+```
 
 
