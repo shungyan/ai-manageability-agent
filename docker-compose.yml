@@ -45,5 +45,14 @@ services:
       -g 25
       -rtsp_transport tcp
       -f rtsp rtsp://localhost:8554/cam0
+      
+  person_queue_count:
+    build:
+      context: ./person_queue_count  # path to directory with Dockerfile
+    container_name: person_queue_count
+    restart: always
+    network_mode: host
+    devices:
+      - /dev/accel/accel0
 
 
