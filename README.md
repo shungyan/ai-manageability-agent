@@ -33,7 +33,7 @@ Ensure Docker is running and you can execute containers.
 
 ---
 
-### ⚙️ Intel NPU Driver Installation
+### ⚙️ Intel NPU Driver Installation (optional)
 
 Install the NPU driver for Meteor Lake and above (Ubuntu 24.04 compatible):
 
@@ -76,24 +76,25 @@ cd AI-manageability
 
 2. Start Docker services
 ```bash
+docker compose build
 docker compose up -d
 ```
 3. Create kafka topic 
 
-4. Set up Python environment with uv
+4. Go to http://localhost:4896/ to look at the person queue count stream (optional)
+
+5. Set up Python environment with uv for google adk
 ```bash
 uv venv
-uv pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu --index-strategy unsafe-best-match
+uv pip install -r requirements.txt 
 ```
 
-5. Go to http://localhost:4896/ to look at the person queue count stream (optional)
-
-7. Launch google adk web on port 5678
+6. Launch google adk web on port 5678
 ```bash
 uv run adk web --port 5678
 ```
 
-8. Run the google adk agent directly
+7. Run the google adk agent directly
 ```bash
 uv run adk run ai-agent
 ```
