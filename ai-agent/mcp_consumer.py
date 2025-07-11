@@ -1,73 +1,64 @@
-import json
+from quixstreams import Application
 import time
+import json
+from confluent_kafka import Consumer, TopicPartition
 from mcp.server.fastmcp import Context, FastMCP
-from kafka import KafkaConsumer, TopicPartition
-from kafka.structs import OffsetAndMetadata
-import json
-import time
+
+
+# Configure an Application.
+# The config params will be used for the Consumer instance too.
+app = Application(
+    broker_address="localhost:9092",
+    consumer_group="retail",
+    auto_offset_reset="latest",
+)
+# topic = app.topic(name="queue_topic", value_deserializer="json")
 
 latest = 0
 
 mcp = FastMCP("Kafka MCP Server")
 
-# Create Kafka consumer
-consumer = KafkaConsumer(
-    'people-count',  # Topic name
-    bootstrap_servers='localhost:9092',
-    auto_offset_reset='earliest',          # Start from beginning
-    enable_auto_commit=True,
-    group_id='dummy-group',                # Consumer group name
-    value_deserializer=lambda m: json.loads(m.decode('utf-8'))  # Decode JSON
-)
-
-
 @mcp.tool()
-def get_latest_queue_count():
+def get_latest_queue_count() -> int:
     global latest
+    # Create a consumer and start a polling loop
+    with app.get_consumer() as consumer:
+        # consumer.subscribe(topics=["queue_topic"])
 
-    topic = 'people-count'
-    partition = 0
+        topic = "people-count"  # specify the topic name
+        partition = 0  # adjust if multiple partitions
 
-    consumer = KafkaConsumer(
-        bootstrap_servers='localhost:9092',
-        group_id='dummy-group',
-        enable_auto_commit=False,
-        value_deserializer=lambda m: json.loads(m.decode('utf-8')),
-        auto_offset_reset='latest'
-    )
+        # Get the latest offset (high watermark)
+        low, high = consumer.get_watermark_offsets(TopicPartition(topic, partition))
 
-    tp = TopicPartition(topic, partition)
-    
+        if high > latest:
+            latest = high
+        elif high == 0 or high == latest:
+            return -2
 
-    end_offsets = consumer.end_offsets([tp])
-    high = end_offsets[tp]
+        print(f"High: {high}, Latest: {latest}")
 
-    if high > latest:
-        latest = high
-    elif high == 0 or high == latest:
-        return -2
+        # Assign consumer to the latest offset (start consuming new messages only)
+        consumer.assign([TopicPartition(topic, partition, high - 1)])
 
-    print(f"High: {high}, Latest: {latest}")
+        msg = consumer.poll(0.1)
+        if msg is None:
+            return -2
+        elif msg.error():
+            print("Kafka error:", msg.error())
+            return -1
 
-
-    consumer.assign([tp])
-    consumer.seek(tp, high - 1)
-    msg_pack = consumer.poll(timeout_ms=100)
-
-    if msg_pack is None:
-        return -2
-
-    for tp, messages in msg_pack.items():
-        for message in messages:
-            # consumer.commit(offsets={
-            #     TopicPartition(topic, partition): OffsetAndMetadata(message.offset + 1, None,-1)
-            # })
-            # consumer.close()
-            return message.value
-
-    return -2
-
-
+        value = json.loads(msg.value().decode("utf-8"))
+        print("Received:", value)
+        # Do some work with the value here ...
+        # Store the offset of the processed message on the Consumer
+        # for the auto-commit mechanism.
+        # It will send it to Kafka in the background.
+        # Storing offset only after the message is processed enables at-least-once delivery
+        # guarantees.
+        consumer.store_offsets(message=msg)
+        consumer.close()
+        return value["queue_count"]
 
 if __name__ == "__main__":
     # Run the server
