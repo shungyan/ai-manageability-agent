@@ -4,12 +4,12 @@ from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset, StdioConnectionPar
 
 param1 = StdioServerParameters(
     command='uv',
-    args=["--directory", "/home/sysadmin/AI-manageability-agent/manageability_agent/", "run", "mcp_consumer.py"]
+    args=["--directory", "/home/sysadmin/AI-manageability-agent/ai-agent/", "run", "mcp_consumer.py"]
 )
 
 param2 = StdioServerParameters(
     command='uv',
-    args=["--directory", "/home/sysadmin/AI-manageability-agent/manageability_agent/", "run", "app.py"],
+    args=["--directory", "/home/sysadmin/AI-manageability-agent/ai-agent/", "run", "app.py"],
     env={"DMT_username":"standalone","DMT_password":"G@ppm0ym"},
     timeout=150,
 )
