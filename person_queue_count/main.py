@@ -9,14 +9,23 @@ import openvino as ov
 from kafka import KafkaProducer
 import json
 from types import SimpleNamespace
+from quixstreams import Application
 
 app = Flask(__name__)
 
-# Kafka setup
-producer = KafkaProducer(
-    bootstrap_servers='localhost:9092',
-    value_serializer=lambda v: json.dumps(v).encode('utf-8')
-)
+def produce_queue_count(
+    broker_address: str, topic_name: str, consumer_group: str, count: int
+):
+    """
+    Produces a single queue count event to the specified Kafka topic.
+    """
+    app = Application(broker_address=broker_address, consumer_group=consumer_group)
+    topic = app.topic(name=topic_name, value_serializer="json")
+
+    with app.get_producer() as producer:
+        message = topic.serialize(key="queue", value={"queue_count": count})
+        producer.produce(topic=topic.name, value=message.value, key=message.key)
+        print(f"Produced queue count: {count}")
 
 # Set parameters
 source = "rtsp://localhost:8554/cam0"  # or 'video.mp4'
@@ -31,7 +40,7 @@ ov_config = {}
 if device.value != "CPU":
     det_ov_model.reshape({0: [1, 3, 640, 640]})
 
-if "GPU" in device.value or ("AUTO" in device.value and "GPU" in core.available_devices):
+if "GPU" in device.value or ("AUTO" in device.value and "CPU" in core.available_devices):
     ov_config = {"GPU_DISABLE_WINOGRAD_CONVOLUTION": "YES"}
 
 compiled_model = core.compile_model(det_ov_model, device.value, ov_config)
@@ -48,12 +57,16 @@ det_model.predictor.inference = infer
 det_model.predictor.model.pt = False
 
 
+
 def generate_frames():
     cap = cv2.VideoCapture(source)
     assert cap.isOpened(), "Error reading video source."
 
     area = [(900, 300), (1500, 300), (1500, 1500), (900, 1500)]
     processing_times = collections.deque(maxlen=200)
+
+    SEND_INTERVAL = 2.0  # seconds
+    last_send_time = 0
 
     while cap.isOpened():
         success, frame = cap.read()
@@ -74,8 +87,10 @@ def generate_frames():
                     people_inside_area += 1
                     cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
 
-        producer.send("people-count", value=people_inside_area)
-        producer.flush()
+        current_time = time.time()
+        if current_time - last_send_time >= SEND_INTERVAL:
+            produce_queue_count("localhost:9092", "people-count", "retail", people_inside_area)
+            last_send_time = current_time
 
         cv2.polylines(frame, [np.array(area, dtype=np.int32)], isClosed=True, color=(255, 255, 0), thickness=2)
 
@@ -119,4 +134,4 @@ def video_feed():
 
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5001)
+    app.run(host='0.0.0.0', port=4896)
