@@ -86,24 +86,16 @@ uv venv
 uv pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu --index-strategy unsafe-best-match
 ```
 
-5. Convert YOLO model (optional)
+5. Go to http://localhost:4896/ to look at the person queue count stream (optional)
+
+7. Launch google adk web on port 5678
 ```bash
-uv run person_queue_count/convert_yolo.py
+uv run adk web --port 5678
 ```
 
-6. Run the main application
+8. Run the google adk agent directly
 ```bash
-uv run person_queue_count/main.py
-```
-
-7. Launch the web dashboard on port 1234
-```bash
-uv run adk web --port 1234
-```
-
-8. Run the manageability agent directly
-```bash
-uv run adk run manageability_agent
+uv run adk run ai-agent
 ```
 ## 🛠️ How To
 
