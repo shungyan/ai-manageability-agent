@@ -85,10 +85,8 @@ services:
     container_name: ffmpeg-camera
     restart: unless-stopped
     network_mode: host
-    volumes:
-      - ./video.mp4:/video/video.mp4  
     command: >
-      -re -stream_loop -1 -i /video/video.mp4
+      -re -stream_loop -1 -i /dev/video0
       -c:v libx264
       -preset ultrafast
       -tune zerolatency
