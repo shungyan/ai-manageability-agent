@@ -97,7 +97,7 @@ services:
       -f rtsp rtsp://localhost:8554/cam0
       
   person_queue_count:
-    image: shungyan/person_queue_count:latest
+    image: shungyan17/person_queue_count:latest
     container_name: person_queue_count
     restart: always
     network_mode: host
