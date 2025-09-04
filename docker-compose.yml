@@ -100,9 +100,10 @@ services:
     container_name: person_queue_count
     restart: always
     network_mode: host
-    devices:
-      - /dev/accel/accel0
+    #uncomment if want to use NPU
+    # devices:
+    #   - /dev/accel/accel0
     environment:
-          - DEVICE=NPU
+          - DEVICE=CPU # change to NPU if needed
           - SOURCE=rtsp://localhost:8554/cam0 
 
