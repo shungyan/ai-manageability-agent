@@ -86,12 +86,12 @@ services:
     restart: unless-stopped
     network_mode: host
     command: >
-      -re -stream_loop -1 -i /dev/video0
-      -c:v libx264
-      -preset ultrafast
-      -tune zerolatency
-      -g 25
-      -rtsp_transport tcp
+      -f v4l2 -i /dev/video0 
+      -c:v libx264 
+      -preset ultrafast 
+      -tune zerolatency 
+      -g 25 
+      -rtsp_transport tcp 
       -f rtsp rtsp://localhost:8554/cam0
       
   person_queue_count:
