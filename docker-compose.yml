@@ -95,8 +95,7 @@ services:
       -f rtsp rtsp://localhost:8554/cam0
       
   person_queue_count:
-    build:
-      context: ./person_queue_count  # path to directory with Dockerfile
+    image: shungyan/person_queue_count:latest
     container_name: person_queue_count
     restart: always
     network_mode: host
