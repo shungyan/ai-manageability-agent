@@ -96,7 +96,8 @@ services:
       -rtsp_transport tcp 
       -f rtsp rtsp://localhost:8554/cam0
       
-  person_queue_count:
+person_queue_count:
+    build: ./person_queue_count   # path where your Dockerfile is located
     image: shungyan17/person_queue_count:latest
     container_name: person_queue_count
     restart: always

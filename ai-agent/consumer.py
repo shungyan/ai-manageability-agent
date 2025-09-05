@@ -7,7 +7,7 @@ from confluent_kafka import Consumer, TopicPartition
 # Configure an Application.
 # The config params will be used for the Consumer instance too.
 app = Application(
-    broker_address="localhost:9092",
+    broker_address="192.168.1.108:32000",
     consumer_group="retail",
     auto_offset_reset="latest",
 )
